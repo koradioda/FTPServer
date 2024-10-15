@@ -45,11 +45,6 @@ int CFtpRun::strtoint(std::string str)
 	return -1;
 }
 
-void CFtpRun::SetPath(const char* path)
-{
-	m_path = path;
-}
-
 void CFtpRun::run()
 {
 	// 发送 欢迎 信息
@@ -64,7 +59,6 @@ void CFtpRun::run()
 	}
 
 }
-
 
 int CFtpRun::Menu(CSocketDio* pSock)
 {
@@ -90,7 +84,7 @@ int CFtpRun::Menu(CSocketDio* pSock)
 	case PASV:	return CmdPasv(pSock, recvStr);
 	case PORT:	return CmdPort(pSock, recvStr);
 	case NLST:	return CmdNlst(pSock, recvStr);
-	case PWD:
+	case PWD:	
 	case XPWD:	return CmdXpwd(pSock, recvStr);
 	case TYPE:	return CmdType(pSock, recvStr);
 	case SYST:	return CmdSyst(pSock, recvStr);
@@ -100,6 +94,7 @@ int CFtpRun::Menu(CSocketDio* pSock)
 	case RNFR:	return CmdRnfr(pSock, recvStr);
 	case RNTO:	return CmdRnto(pSock, recvStr);
 	case STOR:	return CmdStor(pSock, recvStr);
+	case RMD:	CmdRmd(pSock, recvStr);	// cPath// 删除目录的他会进入目录
 	case DELE:	return CmdDele(pSock, recvStr);
 	case RETR:	return CmdRetr(pSock, recvStr);
 	case SIZE:	return CmdSize(pSock, recvStr);
@@ -111,11 +106,10 @@ int CFtpRun::Menu(CSocketDio* pSock)
 	return -1;
 }
 
-
 int CFtpRun::CheckUser(CSocketDio* pSock, string& str)
 {   // str "USER xxx\r\n"
-	size_t index = str.find('\r',0);
-	string rbuf = str.substr(5,index-5);  // 截取username
+	
+	string rbuf = GetData(str);  // 截取username
 	if (rbuf == m_user)
 	{ // "331 OK,need passwd!"
 		rbuf = "331 OK, Need passwd!\r\n";
@@ -134,8 +128,8 @@ int CFtpRun::CheckUser(CSocketDio* pSock, string& str)
 
 int CFtpRun::CheckPass(CSocketDio* pSock, string& str)
 {// 230 
-	int index = str.find('\r', 0);
-	string rbuf = str.substr(5, index - 5);  // 截取password
+	
+	string rbuf = GetData(str);  // 截取password
 	if (rbuf == m_pass)
 	{ // "331 OK,need passwd!"
 		rbuf = "230 Uer login, can continue!\r\n";
@@ -182,6 +176,7 @@ int CFtpRun::CmdList(CSocketDio* pSock, string& str)
 		str += "\r\n";
 		// if(codeMode=='I')
 			//str = stringToBinary(str);
+		//str = _u8(str);
 		dSock.Send(str.c_str(),str.length());
 		
 	}while (_findnext(fhandle,&fileInfo)!=-1);
@@ -228,8 +223,8 @@ bool CFtpRun::CheckisDir(const string& strDir)
 
 int CFtpRun::CmdCwd(CSocketDio* pSock, string& str)
 {   // str == "CWD filedir\r\n"
-	size_t nEnd= str.find('\r');
-	string tdir = str.substr(4,nEnd-4);  // dir name
+	
+	string tdir = GetData(str);  // dir name
 	// string u8tdir = AnsiToUtf8(tdir);
 	string sbuf;
 	// 0. cd /  
@@ -269,7 +264,7 @@ int CFtpRun::CmdCwd(CSocketDio* pSock, string& str)
 		if (prefix == "./")
 			tdir = tdir.substr(2);
 
-		string fullPath = m_path + root + cPath  + tdir;   // 绝对路径  tdir == aaa/aaa/...
+		string fullPath = m_path + root + cPath + "/" + tdir;   // 绝对路径  tdir == aaa/aaa/...
 
 		DWORD attributes = GetFileAttributesA(fullPath.c_str());
 		if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY)) {
@@ -426,15 +421,14 @@ int CFtpRun::CmdType(CSocketDio* pSock, string& str)
 
 int CFtpRun::CmdSyst(CSocketDio* pSock, string& str)
 {
-	char sbuf[128] = "215 Windows_NT\r\n";
-	pSock->Send(sbuf,sizeof(sbuf));
+	string sbuf = "215 Windows_NT\r\n";
+	pSock->Send(sbuf.c_str(), sbuf.length());
 	return 0;
 }
 
 int CFtpRun::CmdMkd(CSocketDio* pSock, string& str)
 {
-	size_t nEnd = str.find('\r');
-	string dirName = str.substr(4, nEnd - 4);  //   获取文件名字
+	string dirName = GetData(str);  //   获取文件名字
 	dirName = m_path + root + cPath + "/" + dirName;
 	
 	int result = _tmkdir(bstr_t(dirName.c_str()));   // 创建目录
@@ -467,8 +461,8 @@ int CFtpRun::CmdFeat(CSocketDio* pSock, string& str)
 int CFtpRun::CmdRnfr(CSocketDio* pSock, string& str)
 {
 	// 是在当前目录下修改文件
-	size_t nEnd = str.find('\r');
-	oldName = str.substr(5, nEnd - 5);  // RNFR xxxx\r\n;
+	
+	oldName = GetData(str);;  // RNFR xxxx\r\n;
 	string sbuf = "350 Ready for RNTO\r\n";
 	pSock->Send(sbuf.c_str(),sbuf.length());
 
@@ -477,9 +471,7 @@ int CFtpRun::CmdRnfr(CSocketDio* pSock, string& str)
 
 int CFtpRun::CmdRnto(CSocketDio* pSock, string& str)
 {
-	size_t nEnd = str.find('\r');
-	string newName = str.substr(5, nEnd - 5);  // RNTO xxxx\r\n;
-
+	string newName = GetData(str);  // RNTO xxxx\r\n;
 	string FullOldName = m_path + root + cPath  + oldName;  // cPath-->aa/aa/..
 	string FullNewName = m_path + root + cPath  + newName;
 	int ret = rename(FullOldName.c_str(), FullNewName.c_str());
@@ -499,8 +491,7 @@ int CFtpRun::CmdStor(CSocketDio* pSock, string& str)
 {
 	// 获取文件名并设置完整路径。
 	// size_t nStart = str.find(' ');
-	size_t nEnd = str.find('\r');
-	string fileName = str.substr(5, nEnd - 5);  // part name
+	string fileName = GetData(str);  // part name
 	fileName = m_path + root + cPath + fileName;  // full name
 	FILE* fp = fopen(fileName.c_str(),"wb");	// 二进制写入
 	if (!fp)
@@ -536,12 +527,24 @@ int CFtpRun::CmdStor(CSocketDio* pSock, string& str)
 	return 0;
 }
 
+int CFtpRun::CmdRmd(CSocketDio* pSock, string& str)
+{
+	//size_t lastSep = cPath.rfind('/');  // 目录c:\aa\bbb的最有一个 分隔符"\"
+	//if (std::string::npos != lastSep)
+	//	cPath.replace(cPath.begin() + lastSep, cPath.end(), "");   // parent dir
+	//else
+	//	cPath = "";
+
+	return 0;
+}
+
 int CFtpRun::CmdDele(CSocketDio* pSock, string& str)
 {
-	// size_t nStart = str.find(' ');
-	size_t nEnd = str.find('\r');
-	string fileName = str.substr(5, nEnd - 5);  //  获取要删除的文件名字。
-	fileName = m_path + root + cPath + "/" + fileName; // full name
+	string fileName = GetData(str); //  获取要删除的文件名字。
+	if(cPath.empty())
+		fileName = m_path + root + cPath + fileName; // full name
+	else
+		fileName = m_path + root + cPath + "/" + fileName; // full name
 
 	// _trmdir 只能删除空目录
 	if (RecursiveDel(fileName))   // 递归删除
@@ -559,8 +562,7 @@ int CFtpRun::CmdDele(CSocketDio* pSock, string& str)
 int CFtpRun::CmdRetr(CSocketDio* pSock, string& str)
 {
 	// dSock 发送数据
-	size_t nEnd = str.find('\r');
-	string fileName = str.substr(5, nEnd - 5);  //  获取文件名字。
+	string fileName = GetData(str);
 	fileName = m_path + root + cPath + "/" + fileName;  // full name
 
 	FILE* fp = fopen(fileName.c_str(),"rb");  // 二进制读取文件
@@ -597,8 +599,7 @@ int CFtpRun::CmdRetr(CSocketDio* pSock, string& str)
 int CFtpRun::CmdSize(CSocketDio* pSock, string& str)
 {
 	// 获取文件大小并发送
-	size_t nEnd = str.find('\r');
-	string fileName = str.substr(5, nEnd - 5);  //  获取文件名字。
+	string fileName = GetData(str);  //  获取文件d大小。
 	fileName = m_path + root + cPath + "/" + fileName;  // full name
 	
 	FILE* fp = fopen(fileName.c_str(),"rb");
@@ -621,6 +622,7 @@ int CFtpRun::CmdNoop(CSocketDio* pSock, string& str)
 	string sbuf = "200 NOOP command successful.\r\n";
 	return pSock->Send(sbuf.c_str(),sbuf.length());
 }
+
 
 // tools ..... 
 void CFtpRun::getIpPort(string str, string& sIP, int& nPort)
@@ -702,6 +704,13 @@ string CFtpRun::GetCmd(const char* str)
 	return string();
 }
 
+string CFtpRun::GetData(string& str)
+{
+	size_t nStart = str.find(' ');
+	size_t nEnd = str.find('\r');
+	return str.substr(nStart + 1, nEnd - nStart - 1);;
+}
+
 bool CFtpRun::RecursiveDel(string& fileName)
 {
 	DWORD attribs = GetFileAttributes(bstr_t(fileName.c_str()));
@@ -748,4 +757,9 @@ void CFtpRun::SetUserName(const char* user)
 void CFtpRun::SetUserPwd(const char* pass)
 {
 	m_pass = pass;
+}
+
+void CFtpRun::SetPath(const char* path)
+{
+	m_path = path;
 }
